@@ -207,6 +207,7 @@
             border-bottom: 1px solid #f0f0f0; line-height: 1.3;
         }
         .search-result:last-child { border-bottom: none; }
+        .search-result-location .sr-main { color: #2980b9; font-weight: 600; }
         .search-result:hover { background: #f0f7ff; }
         .search-result .sr-main { color: #2c3e50; font-weight: 500; }
         .search-result .sr-sub  { color: #888; font-size: 0.76rem; margin-top: 1px; }
@@ -868,12 +869,13 @@ const searchDropdown = document.getElementById('search-dropdown');
 const searchSpinner  = document.getElementById('search-spinner');
 let searchTimer = null;
 
+searchInput.addEventListener('focus', () => showDropdownWithLocation());
 searchInput.addEventListener('input', () => {
     const q = searchInput.value.trim();
     searchClear.style.display = q ? 'block' : 'none';
     searchSpinner.style.display = 'none';
     clearTimeout(searchTimer);
-    if (q.length < 2) { closeDropdown(); return; }
+    if (q.length < 2) { showDropdownWithLocation(); return; }
     searchSpinner.style.display = 'block';
     searchTimer = setTimeout(() => nominatimSearch(q), 350);
 });
@@ -888,6 +890,56 @@ document.addEventListener('click', e => {
     if (!document.getElementById('search-box').contains(e.target)) closeDropdown();
 });
 
+function makeLocationItem() {
+    const item = document.createElement('div');
+    item.className = 'search-result search-result-location';
+    item.innerHTML = '<div class="sr-main">📍 Aktuellen Standort verwenden</div>';
+    item.addEventListener('click', useCurrentLocation);
+    return item;
+}
+
+function showDropdownWithLocation() {
+    searchDropdown.innerHTML = '';
+    searchDropdown.appendChild(makeLocationItem());
+    searchDropdown.style.display = 'block';
+}
+
+function useCurrentLocation() {
+    if (!navigator.geolocation) {
+        showDropdownWithLocation();
+        searchDropdown.querySelector('.sr-main').textContent = '⚠ Geolocation nicht verfügbar';
+        return;
+    }
+    closeDropdown();
+    searchSpinner.style.display = 'block';
+    navigator.geolocation.getCurrentPosition(
+        pos => {
+            searchSpinner.style.display = 'none';
+            const { latitude: lat, longitude: lng } = pos.coords;
+            map.setView([lat, lng], 14);
+            fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`, {
+                headers: { 'Accept-Language': 'de' }
+            })
+            .then(r => r.json())
+            .then(d => {
+                const a = d.address || {};
+                const name = a.city || a.town || a.village || a.county || 'Aktueller Standort';
+                searchInput.value = name;
+                searchClear.style.display = 'block';
+            })
+            .catch(() => { searchInput.value = 'Aktueller Standort'; searchClear.style.display = 'block'; });
+        },
+        err => {
+            searchSpinner.style.display = 'none';
+            const msg = err.code === 1 ? 'Standortzugriff verweigert' : 'Standort nicht ermittelbar';
+            searchDropdown.innerHTML = `<div class="search-result"><span class="sr-main" style="color:#e74c3c">⚠ ${msg}</span></div>`;
+            searchDropdown.style.display = 'block';
+            setTimeout(closeDropdown, 2500);
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+    );
+}
+
 async function nominatimSearch(q) {
     try {
         const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=6&addressdetails=1`;
@@ -899,8 +951,12 @@ async function nominatimSearch(q) {
 
 function renderDropdown(results) {
     searchDropdown.innerHTML = '';
+    searchDropdown.appendChild(makeLocationItem());
     if (!results.length) {
-        searchDropdown.innerHTML = '<div class="search-result"><span class="sr-main">Keine Ergebnisse</span></div>';
+        const noResult = document.createElement('div');
+        noResult.className = 'search-result';
+        noResult.innerHTML = '<span class="sr-main">Keine Ergebnisse</span>';
+        searchDropdown.appendChild(noResult);
         searchDropdown.style.display = 'block'; return;
     }
     results.forEach(r => {
