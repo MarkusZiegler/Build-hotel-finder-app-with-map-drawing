@@ -317,6 +317,21 @@
         /* ── Touch / iPad ── */
         #map.drawing { touch-action: none; }
 
+        /* Standortmarker */
+        .location-dot {
+            width: 16px; height: 16px;
+            background: #2980b9;
+            border: 3px solid white;
+            border-radius: 50%;
+            box-shadow: 0 0 0 2px rgba(41,128,185,0.4);
+            animation: loc-pulse 2s ease-out infinite;
+        }
+        @keyframes loc-pulse {
+            0%   { box-shadow: 0 0 0 0   rgba(41,128,185,0.5); }
+            70%  { box-shadow: 0 0 0 12px rgba(41,128,185,0);   }
+            100% { box-shadow: 0 0 0 0   rgba(41,128,185,0);   }
+        }
+
         /* ── Responsive: schmale Screens (Handy) ── */
         @media (max-width: 600px) {
             body { flex-direction: column; }
@@ -872,6 +887,20 @@ btnClear.addEventListener('click', () => {
     btnRescan.disabled = btnClear.disabled = btnExport.disabled = true;
 });
 
+// ── Standortmarker ────────────────────────────────────────────────────────
+let locationMarker = null;
+function setLocationMarker(lat, lng) {
+    if (locationMarker) map.removeLayer(locationMarker);
+    locationMarker = L.marker([lat, lng], {
+        icon: L.divIcon({ html: '<div class="location-dot"></div>', className: '', iconSize: [16,16], iconAnchor: [8,8] }),
+        zIndexOffset: 1000,
+        interactive: false
+    }).addTo(map);
+}
+function clearLocationMarker() {
+    if (locationMarker) { map.removeLayer(locationMarker); locationMarker = null; }
+}
+
 // ── Ortssuche (Nominatim) ──────────────────────────────────────────────────
 const searchInput    = document.getElementById('search-input');
 const searchClear    = document.getElementById('search-clear');
@@ -894,7 +923,7 @@ searchInput.addEventListener('keydown', e => {
 });
 searchClear.addEventListener('click', () => {
     searchInput.value = ''; searchClear.style.display = 'none';
-    closeDropdown(); searchInput.focus();
+    clearLocationMarker(); closeDropdown(); searchInput.focus();
 });
 document.addEventListener('click', e => {
     if (!document.getElementById('search-box').contains(e.target)) closeDropdown();
@@ -927,6 +956,7 @@ function useCurrentLocation() {
             searchSpinner.style.display = 'none';
             const { latitude: lat, longitude: lng } = pos.coords;
             map.setView([lat, lng], 14);
+            setLocationMarker(lat, lng);
             fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`, {
                 headers: { 'Accept-Language': 'de' }
             })
@@ -978,6 +1008,7 @@ function renderDropdown(results) {
         item.addEventListener('click', () => {
             const b = r.boundingbox;
             map.fitBounds([[+b[0], +b[2]], [+b[1], +b[3]]], { maxZoom: 14 });
+            setLocationMarker(+r.lat, +r.lon);
             searchInput.value = main; searchClear.style.display = 'block';
             closeDropdown();
         });
