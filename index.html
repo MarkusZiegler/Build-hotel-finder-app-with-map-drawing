@@ -255,6 +255,61 @@
             border-radius: 6px; padding: 8px 10px; margin-top: 10px; line-height: 1.5;
         }
 
+        /* ── Kategorie-Dropdown ── */
+        #cat-wrapper {
+            padding: 8px 12px;
+            border-bottom: 1px solid #ddd;
+            background: white;
+            position: relative;
+            z-index: 100;
+        }
+        #cat-btn {
+            width: 100%;
+            background: #f0f4f8;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 8px 12px;
+            text-align: left;
+            font-size: 0.83rem;
+            cursor: pointer;
+            color: #2c3e50;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 500;
+        }
+        #cat-btn:hover { background: #e2e8f0; }
+        #cat-dropdown {
+            display: none;
+            position: absolute;
+            left: 12px; right: 12px; top: 100%;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+            overflow: hidden;
+        }
+        #cat-dropdown.open { display: block; }
+        .cat-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 11px 14px;
+            cursor: pointer;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 0.84rem;
+            user-select: none;
+        }
+        .cat-item:last-child { border-bottom: none; }
+        .cat-item:hover { background: #f0f7ff; }
+        .cat-item input[type="checkbox"] {
+            width: 18px; height: 18px;
+            cursor: pointer;
+            accent-color: #2980b9;
+            flex-shrink: 0;
+        }
+        .cat-icon { font-size: 1.1rem; }
+
         /* ── Touch / iPad ── */
         #map.drawing { touch-action: none; }
     </style>
@@ -273,10 +328,15 @@
 <div id="sidebar">
     <div id="sidebar-header">
         <div class="header-text">
-            <h1>Hotels im Gebiet <span id="google-indicator">+ Google</span></h1>
+            <h1>Orte im Gebiet <span id="google-indicator">+ Google</span></h1>
             <p>Rechteck oder Polygon auf der Karte einzeichnen</p>
         </div>
         <button id="btn-settings" title="Einstellungen">⚙️</button>
+    </div>
+
+    <div id="cat-wrapper">
+        <button id="cat-btn">🏨 Hotels ▾</button>
+        <div id="cat-dropdown"></div>
     </div>
 
     <div id="controls">
@@ -322,6 +382,37 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
 <script>
+// ── Kategorien ────────────────────────────────────────────────────────────
+const CATEGORIES = [
+    { id: 'hotel',       label: 'Hotels',       icon: '🏨', selected: true,
+      osmFilters: ['"tourism"~"^(hotel|motel|hostel|guest_house)$"'], googleTypes: ['lodging'] },
+    { id: 'restaurant',  label: 'Restaurants',  icon: '🍽️', selected: false,
+      osmFilters: ['"amenity"="restaurant"'],                         googleTypes: ['restaurant'] },
+    { id: 'cafe',        label: 'Cafés',         icon: '☕', selected: false,
+      osmFilters: ['"amenity"="cafe"'],                               googleTypes: ['cafe'] },
+    { id: 'fuel',        label: 'Tankstellen',   icon: '⛽', selected: false,
+      osmFilters: ['"amenity"="fuel"'],                               googleTypes: ['gas_station'] },
+    { id: 'supermarket', label: 'Supermärkte',   icon: '🛒', selected: false,
+      osmFilters: ['"shop"="supermarket"'],                           googleTypes: ['supermarket'] },
+    { id: 'pharmacy',    label: 'Apotheken',     icon: '💊', selected: false,
+      osmFilters: ['"amenity"="pharmacy"'],                           googleTypes: ['pharmacy'] },
+    { id: 'bakery',      label: 'Bäckereien',    icon: '🥐', selected: false,
+      osmFilters: ['"shop"="bakery"'],                                googleTypes: ['bakery'] },
+    { id: 'bank',        label: 'Banken',        icon: '🏦', selected: false,
+      osmFilters: ['"amenity"="bank"'],                               googleTypes: ['bank'] },
+];
+
+function selectedCats() { return CATEGORIES.filter(c => c.selected); }
+
+function typeToIcon(type) {
+    const m = {
+        hotel:'🏨', motel:'🏨', hostel:'🏨', guest_house:'🏨', lodging:'🏨',
+        restaurant:'🍽️', cafe:'☕', fuel:'⛽', gas_station:'⛽',
+        supermarket:'🛒', pharmacy:'💊', bakery:'🥐', bank:'🏦',
+    };
+    return m[type] || '📍';
+}
+
 // ── Karte ──────────────────────────────────────────────────────────────────
 const map = L.map('map', { tap: true, tapTolerance: 15 }).setView([48.137, 11.575], 13);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -402,7 +493,10 @@ map.on(L.Draw.Event.EDITED, e => {
 
 // ── Hauptabfrage: OSM + optional Google ───────────────────────────────────
 async function queryAll(layer) {
-    setStatus('<div class="spinner"></div>Suche Hotels…');
+    const cats = selectedCats();
+    if (!cats.length) { setStatus('Bitte mindestens eine Kategorie wählen.'); return; }
+    const catLabel = cats.length === 1 ? cats[0].label : `${cats.length} Kategorien`;
+    setStatus(`<div class="spinner"></div>Suche ${catLabel}…`);
     btnClear.disabled  = false;
     btnExport.disabled = true;
     resultsEl.innerHTML = '';
@@ -416,12 +510,11 @@ async function queryAll(layer) {
 
     const apiKey = loadApiKey();
 
-    // Beide Quellen parallel abfragen
     let googleError = null;
     const [osmResults, googleResults] = await Promise.all([
-        fetchOSM(polyStr),
+        fetchOSM(polyStr, cats),
         apiKey
-            ? fetchGoogle(bounds, apiKey).catch(e => { googleError = e.message; return []; })
+            ? fetchGoogle(bounds, apiKey, cats).catch(e => { googleError = e.message; return []; })
             : Promise.resolve([])
     ]);
 
@@ -437,15 +530,13 @@ async function queryAll(layer) {
 }
 
 // ── OSM / Overpass ─────────────────────────────────────────────────────────
-async function fetchOSM(polyStr) {
-    const query = `
-[out:json][timeout:30];
-(
-  node["tourism"~"^(hotel|motel|hostel|guest_house)$"](poly:"${polyStr}");
-  way ["tourism"~"^(hotel|motel|hostel|guest_house)$"](poly:"${polyStr}");
-  relation["tourism"~"^(hotel|motel|hostel|guest_house)$"](poly:"${polyStr}");
-);
-out center tags;`.trim();
+async function fetchOSM(polyStr, cats) {
+    const lines = cats.flatMap(c => c.osmFilters.flatMap(f => [
+        `  node[${f}](poly:"${polyStr}");`,
+        `  way [${f}](poly:"${polyStr}");`,
+        `  relation[${f}](poly:"${polyStr}");`,
+    ]));
+    const query = `[out:json][timeout:30];\n(\n${lines.join('\n')}\n);\nout center tags;`;
 
     try {
         const resp = await fetch('https://overpass-api.de/api/interpreter', {
@@ -471,7 +562,7 @@ function parseOSM(elements) {
             const lng = el.lon ?? el.center?.lon;
             return {
                 name:    t.name || t['name:de'] || '(kein Name)',
-                type:    t.tourism || 'hotel',
+                type:    t.tourism || t.amenity || t.shop || 'place',
                 address: buildAddress(t),
                 stars:   t.stars || t['tourism:stars'] || null,
                 rating:  null,
@@ -493,7 +584,7 @@ function buildAddress(t) {
 }
 
 // ── Google Places API (New) ────────────────────────────────────────────────
-async function fetchGoogle(bounds, apiKey) {
+async function fetchGoogle(bounds, apiKey, cats) {
     const sw = bounds.getSouthWest();
     const ne = bounds.getNorthEast();
 
@@ -505,7 +596,7 @@ async function fetchGoogle(bounds, apiKey) {
     );
 
     const body = {
-        includedTypes: ['lodging'],
+        includedTypes: [...new Set(cats.flatMap(c => c.googleTypes))],
         maxResultCount: 20,
         locationRestriction: {
             circle: {
@@ -544,7 +635,7 @@ async function fetchGoogle(bounds, apiKey) {
 function parseGoogle(places) {
     return places.map(p => ({
         name:    p.displayName?.text || '(kein Name)',
-        type:    (p.types || []).find(t => ['hotel','motel','hostel','lodging'].includes(t)) || 'hotel',
+        type:    (p.types || []).find(t => Object.keys({hotel:1,motel:1,hostel:1,lodging:1,restaurant:1,cafe:1,gas_station:1,supermarket:1,pharmacy:1,bakery:1,bank:1}).includes(t)) || 'place',
         address: p.formattedAddress || null,
         stars:   null,
         rating:  p.rating ? `${p.rating} ★ (${p.userRatingCount || 0})` : null,
@@ -619,15 +710,14 @@ function render(withGoogle) {
     const osmCount    = hotels.filter(h => h.sources.includes('OSM') && !h.sources.includes('Google')).length;
     const googleOnly  = hotels.filter(h => !h.sources.includes('OSM')).length;
     const both        = hotels.filter(h => h.sources.length > 1).length;
-    let statusText    = `${hotels.length} Unterkunft${hotels.length !== 1 ? 'en' : ''}`;
+    let statusText    = `${hotels.length} Ort${hotels.length !== 1 ? 'e' : ''}`;
     if (withGoogle) statusText += ` · ${both} in beiden Quellen · ${googleOnly} nur Google`;
     setStatus(statusText);
     btnExport.disabled = false;
     resultsEl.innerHTML = '';
 
-    const icon = L.divIcon({ html: '🏨', className: '', iconSize: [22, 22], iconAnchor: [11, 11] });
-
     hotels.forEach(h => {
+        const icon = L.divIcon({ html: typeToIcon(h.type), className: '', iconSize: [22, 22], iconAnchor: [11, 11] });
         const srcBadge = h.sources.length > 1
             ? `<span class="badge badge-both">OSM + Google</span>`
             : h.sources[0] === 'Google'
@@ -884,6 +974,39 @@ function getPolyString(layer) {
 function setStatus(html) { statusEl.innerHTML = html; }
 function esc(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Kategorie-Dropdown ────────────────────────────────────────────────────
+const catBtn      = document.getElementById('cat-btn');
+const catDropdown = document.getElementById('cat-dropdown');
+
+CATEGORIES.forEach(cat => {
+    const label = document.createElement('label');
+    label.className = 'cat-item';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = cat.selected;
+    cb.addEventListener('change', () => { cat.selected = cb.checked; updateCatBtn(); });
+    const icon = document.createElement('span');
+    icon.className = 'cat-icon';
+    icon.textContent = cat.icon;
+    const name = document.createElement('span');
+    name.textContent = cat.label;
+    label.append(cb, icon, name);
+    catDropdown.appendChild(label);
+});
+
+catBtn.addEventListener('click', e => { e.stopPropagation(); catDropdown.classList.toggle('open'); });
+document.addEventListener('click', () => catDropdown.classList.remove('open'));
+catDropdown.addEventListener('click', e => e.stopPropagation());
+
+function updateCatBtn() {
+    const sel = selectedCats();
+    const txt = sel.length === 0 ? 'Keine Kategorie'
+              : sel.length === 1 ? `${sel[0].icon} ${sel[0].label}`
+              : sel.length <= 2  ? sel.map(c => `${c.icon} ${c.label}`).join(', ')
+              : `${sel.length} Kategorien`;
+    catBtn.textContent = txt + ' ▾';
 }
 
 // Google-Indikator beim Start setzen falls Key bereits vorhanden
