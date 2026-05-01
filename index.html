@@ -67,6 +67,8 @@
             font-size: 0.82rem;
             font-weight: 500;
         }
+        #btn-rescan { background: #2980b9; color: white; }
+        #btn-rescan:hover { background: #2471a3; }
         #btn-clear  { background: #e74c3c; color: white; }
         #btn-clear:hover  { background: #c0392b; }
         #btn-export { background: #27ae60; color: white; }
@@ -312,6 +314,13 @@
 
         /* ── Touch / iPad ── */
         #map.drawing { touch-action: none; }
+
+        /* Alle linken Toolbar-Buttons einheitlich 44 × 44 px */
+        .leaflet-touch .leaflet-bar a {
+            width: 44px !important;
+            height: 44px !important;
+            line-height: 44px !important;
+        }
     </style>
 </head>
 <body>
@@ -340,8 +349,9 @@
     </div>
 
     <div id="controls">
-        <button id="btn-clear"  disabled>Auswahl löschen</button>
-        <button id="btn-export" disabled>CSV exportieren</button>
+        <button id="btn-rescan" disabled>🔄 Neu suchen</button>
+        <button id="btn-clear"  disabled>Löschen</button>
+        <button id="btn-export" disabled>CSV</button>
     </div>
 
     <div id="status">Zeichne ein Gebiet auf der Karte.</div>
@@ -425,11 +435,7 @@ L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
 // ── Zeichenwerkzeuge ───────────────────────────────────────────────────────
 const drawnItems = new L.FeatureGroup().addTo(map);
 new L.Control.Draw({
-    draw: {
-        rectangle:    { shapeOptions: { color: '#2980b9', weight: 2 } },
-        polygon:      { shapeOptions: { color: '#2980b9', weight: 2 } },
-        circle: false, circlemarker: false, polyline: false, marker: false
-    },
+    draw: false,
     edit: { featureGroup: drawnItems }
 }).addTo(map);
 
@@ -465,11 +471,14 @@ function selectCard(card) {
 }
 
 // ── DOM ────────────────────────────────────────────────────────────────────
-const statusEl       = document.getElementById('status');
-const resultsEl      = document.getElementById('results');
-const btnClear       = document.getElementById('btn-clear');
-const btnExport      = document.getElementById('btn-export');
+const statusEl        = document.getElementById('status');
+const resultsEl       = document.getElementById('results');
+const btnRescan       = document.getElementById('btn-rescan');
+const btnClear        = document.getElementById('btn-clear');
+const btnExport       = document.getElementById('btn-export');
 const googleIndicator = document.getElementById('google-indicator');
+
+btnRescan.addEventListener('click', () => { if (lastLayer) queryAll(lastLayer); });
 
 // ── Zeichen-Events ─────────────────────────────────────────────────────────
 const mapEl = document.getElementById('map');
@@ -499,6 +508,7 @@ async function queryAll(layer) {
     if (!cats.length) { setStatus('Bitte mindestens eine Kategorie wählen.'); return; }
     const catLabel = cats.length === 1 ? cats[0].label : `${cats.length} Kategorien`;
     setStatus(`<div class="spinner"></div>Suche ${catLabel}…`);
+    btnRescan.disabled = false;
     btnClear.disabled  = false;
     btnExport.disabled = true;
     resultsEl.innerHTML = '';
@@ -852,7 +862,7 @@ btnClear.addEventListener('click', () => {
     resultsEl.innerHTML = '<div id="empty-state">Nutze die Zeichenwerkzeuge links oben auf der Karte,<br>um ein Gebiet auszuwählen.</div>';
     setStatus('Zeichne ein Gebiet auf der Karte.');
     googleIndicator.style.display = 'none';
-    btnClear.disabled = btnExport.disabled = true;
+    btnRescan.disabled = btnClear.disabled = btnExport.disabled = true;
 });
 
 // ── Ortssuche (Nominatim) ──────────────────────────────────────────────────
